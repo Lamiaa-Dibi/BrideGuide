@@ -1,8 +1,7 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { StyleSheet, Text, View, FlatList, ActivityIndicator, SafeAreaView, RefreshControl, TouchableOpacity, Platform, TextInput, Alert } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { supabase } from '../../lib/supabase';
-// import { Swipeable, RectButton } from 'react-native-gesture-handler';
 
 interface Task {
   id: string;
@@ -19,6 +18,9 @@ export default function TaskList() {
   const [userEmail, setUserEmail] = useState<string | null>(null);
   const [newTaskTitle, setNewTaskTitle] = useState('');
   const [addingTask, setAddingTask] = useState(false);
+  
+  // 1. Persist the channel across re-renders
+  const channelRef = useRef<any>(null);
 
   useEffect(() => {
     // Get current user info
@@ -28,22 +30,26 @@ export default function TaskList() {
 
     fetchTasks();
 
-    const channel = supabase
-      .channel('public:tasks')
+    // 2. Setup the robust channel
+    channelRef.current = supabase
+      .channel('tasks-channel')
       .on('postgres_changes', 
         { 
           event: '*', 
           schema: 'public', 
           table: 'tasks' 
         }, 
-        () => {
-          fetchTasks();
+        (payload) => {
+          console.log("Realtime event received:", payload);
+          fetchTasks(); // Immediate refresh from source of truth
         }
       )
       .subscribe();
 
     return () => {
-      supabase.removeChannel(channel);
+      if (channelRef.current) {
+        supabase.removeChannel(channelRef.current);
+      }
     };
   }, []);
 
@@ -79,7 +85,7 @@ export default function TaskList() {
     const { error } = await supabase.from('tasks').insert([
       {
         title: newTaskTitle,
-        user_id: user.id, // Explicitly sending user_id
+        user_id: user.id,
         status: 'TODO',
         priority: 'MEDIUM',
         category: 'General'
@@ -91,15 +97,12 @@ export default function TaskList() {
        Alert.alert('Permission Denied', error.message);
     } else {
       setNewTaskTitle('');
-      fetchTasks();
     }
     setAddingTask(false);
   };
 
   const toggleTaskStatus = async (taskId: string, currentStatus: string) => {
     const newStatus = currentStatus === 'DONE' ? 'TODO' : 'DONE';
-    
-    // Optimistic Update
     setTasks(prevTasks => 
       prevTasks.map(t => t.id === taskId ? { ...t, status: newStatus } : t)
     );
@@ -138,7 +141,6 @@ export default function TaskList() {
   };
 
   const renderItem = ({ item }: { item: Task }) => (
-    /* <Swipeable ... > */
     <View style={[styles.card, item.status === 'DONE' && styles.cardDone]}>
        <TouchableOpacity 
          style={styles.cardContent} 
@@ -177,7 +179,6 @@ export default function TaskList() {
          <Text style={styles.inlineDeleteText}>✕</Text>
        </TouchableOpacity>
     </View>
-    /* </Swipeable> */
   );
 
   return (
