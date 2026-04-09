@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Plus, Trash2, Edit2, CheckCircle2, Circle, Clock, X, Search, Filter, Users, Heart } from 'lucide-react';
+import { Plus, Trash2, Edit2, CheckCircle2, Circle, Clock, X, Search, Filter, Users, Heart, MessageSquare } from 'lucide-react';
 import {
   Select,
   SelectContent,
@@ -29,10 +29,12 @@ export default function PremiumDashboard() {
   const [searchQuery, setSearchQuery] = useState('');
   const [showHighPriorityOnly, setShowHighPriorityOnly] = useState(false);
   const [showUserManagement, setShowUserManagement] = useState(false);
+  const [messages, setMessages] = useState<any[]>([]);
 
   useEffect(() => {
     fetchTasks();
     fetchProfiles();
+    fetchMessages();
 
     const taskChannel = supabase
       .channel('tasks-channel')
@@ -44,9 +46,17 @@ export default function PremiumDashboard() {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'profiles' }, () => fetchProfiles())
       .subscribe();
 
+    const messageChannel = supabase
+      .channel('admin-messages-channel')
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'community_messages' }, (payload) => {
+        setMessages(prev => [payload.new, ...prev].slice(0, 5));
+      })
+      .subscribe();
+
     return () => {
       supabase.removeChannel(taskChannel);
       supabase.removeChannel(profileChannel);
+      supabase.removeChannel(messageChannel);
     };
   }, []);
 
@@ -64,8 +74,26 @@ export default function PremiumDashboard() {
 
   const fetchProfiles = async () => {
     const { data } = await supabase.from('profiles').select('*').order('created_at', { ascending: false });
-    console.log('Profiles updated:', data);
     setProfiles(data || []);
+  };
+
+  const fetchMessages = async () => {
+    const { data } = await supabase
+      .from('community_messages')
+      .select('*')
+      .order('created_at', { ascending: false })
+      .limit(5);
+    setMessages(data || []);
+  };
+
+  const getBrideColor = (email: string) => {
+    const colors = ['#E11D48', '#D4AF37', '#8E44AD', '#EC4899', '#3B82F6', '#10B981'];
+    let hash = 0;
+    const cleanEmail = email || 'bride@brideguide.com';
+    for (let i = 0; i < cleanEmail.length; i++) {
+      hash = cleanEmail.charCodeAt(i) + ((hash << 5) - hash);
+    }
+    return colors[Math.abs(hash) % colors.length];
   };
 
   const handleUpdateTask = async (id: string, updates: Partial<Task>) => {
@@ -288,6 +316,67 @@ export default function PremiumDashboard() {
           </div>
         </div>
       </main>
+
+      {/* Community Feed Sidebar (Right Side) */}
+      <aside className="hidden xl:flex w-80 flex-col bg-white/60 backdrop-blur-xl border-l border-rose-100 p-6 overflow-y-auto">
+        <div className="flex items-center gap-2 mb-8 mt-4">
+          <div className="bg-rose-100 p-2 rounded-xl text-rose-600">
+            <MessageSquare size={18} />
+          </div>
+          <h2 className="text-xl font-serif text-[#E11D48]">Live Lounge</h2>
+          <div className="flex-1 flex justify-end">
+            <div className="flex gap-1">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+              <span className="text-[9px] uppercase font-bold text-emerald-600 tracking-tighter">Live</span>
+            </div>
+          </div>
+        </div>
+
+        <div className="space-y-6">
+          <AnimatePresence mode='popLayout'>
+            {messages.length === 0 ? (
+              <div className="text-center py-12 text-rose-200 font-serif italic text-sm">Waiting for new tips...</div>
+            ) : (
+              messages.map((msg) => (
+                <motion.div
+                  key={msg.id}
+                  initial={{ opacity: 0, x: 20 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  exit={{ opacity: 0, scale: 0.9 }}
+                  className="relative pl-4 border-l-2 border-rose-100"
+                >
+                  <div className="relative pl-10">
+                    <div 
+                      className="absolute left-0 top-0 w-8 h-8 rounded-full flex items-center justify-center text-white text-[10px] font-bold shadow-sm"
+                      style={{ backgroundColor: getBrideColor(msg.user_email) }}
+                    >
+                      {msg.user_email?.[0]?.toUpperCase() || 'B'}
+                    </div>
+                    <p className="text-[10px] font-bold text-[#FDA4AF] uppercase tracking-tighter mb-1 truncate">
+                      {msg.user_email?.split('@')[0] || 'Anonymous'}
+                    </p>
+                    <div className="bg-white p-3 rounded-2xl shadow-sm border border-rose-50/50">
+                      <p className="text-[13px] text-gray-600 leading-relaxed font-medium">
+                        {msg.content}
+                      </p>
+                    </div>
+                    <p className="text-[9px] text-gray-300 mt-2 flex items-center gap-1">
+                      <Clock size={10} />
+                      {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    </p>
+                  </div>
+                </motion.div>
+              ))
+            )}
+          </AnimatePresence>
+        </div>
+
+        <div className="mt-auto p-4 bg-rose-50/50 rounded-2xl border border-rose-100/50">
+          <p className="text-[11px] text-rose-400 font-serif text-center italic">
+            "Your community is thriving!"
+          </p>
+        </div>
+      </aside>
     </div>
   );
 }

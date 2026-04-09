@@ -5,8 +5,15 @@ import { StatusBar } from 'expo-status-bar';
 import { supabase } from './lib/supabase';
 import AuthScreen from './src/screens/AuthScreen';
 import TaskList from './src/screens/TaskList';
+import CommunityLounge from './src/screens/CommunityLounge';
 import { Session } from '@supabase/supabase-js';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import { NavigationContainer } from '@react-navigation/native';
+import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
+import { Ionicons } from '@expo/vector-icons';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
+
+const Tab = createBottomTabNavigator();
 
 export default function App() {
   const [session, setSession] = useState<Session | null>(null);
@@ -14,13 +21,16 @@ export default function App() {
 
   useEffect(() => {
     // Get initial session
+    console.log("DEBUG: App Mounted, checking session...");
     supabase.auth.getSession().then(({ data: { session } }) => {
+      console.log("DEBUG: Session found:", !!session);
       setSession(session);
       setLoading(false);
     });
 
     // Listen for auth changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      console.log("DEBUG: Auth State Changed:", _event, !!session);
       setSession(session);
       setLoading(false);
     });
@@ -38,14 +48,47 @@ export default function App() {
     );
   }
 
-  // Restore GestureHandlerRootView for later use
   return (
-    <GestureHandlerRootView style={{ flex: 1 }}>
-      <View style={styles.container}>
+    <SafeAreaProvider>
+      <GestureHandlerRootView style={{ flex: 1 }}>
         <StatusBar style="dark" />
-        {session ? <TaskList /> : <AuthScreen />}
-      </View>
-    </GestureHandlerRootView>
+        {session ? (
+          <NavigationContainer>
+            <Tab.Navigator
+              screenOptions={({ route }) => ({
+                tabBarIcon: ({ focused, color, size }) => {
+                  let iconName: any;
+
+                  if (route.name === 'Tasks') {
+                    iconName = focused ? 'list' : 'list-outline';
+                  } else if (route.name === 'Lounge') {
+                    iconName = focused ? 'chatbubbles' : 'chatbubbles-outline';
+                  }
+
+                  return <Ionicons name={iconName} size={size} color={color} />;
+                },
+                tabBarActiveTintColor: '#E11D48',
+                tabBarInactiveTintColor: '#FDA4AF',
+                headerShown: false,
+                tabBarStyle: {
+                  backgroundColor: '#FFF',
+                  borderTopColor: '#FFE4E6',
+                  height: 60,
+                  paddingBottom: 10,
+                },
+              })}
+            >
+              <Tab.Screen name="Tasks" component={TaskList} />
+              <Tab.Screen name="Lounge" component={CommunityLounge} />
+            </Tab.Navigator>
+          </NavigationContainer>
+        ) : (
+          <View style={styles.container}>
+            <AuthScreen />
+          </View>
+        )}
+      </GestureHandlerRootView>
+    </SafeAreaProvider>
   );
 }
 
