@@ -1,7 +1,10 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { StyleSheet, Text, View, FlatList, ActivityIndicator, SafeAreaView, RefreshControl, TouchableOpacity, Platform, TextInput, Alert } from 'react-native';
+import { StyleSheet, Text, View, FlatList, ActivityIndicator, SafeAreaView, RefreshControl, TouchableOpacity, Platform, TextInput, Alert, Animated } from 'react-native';
+import { useNavigation } from '@react-navigation/native';
+import { Ionicons } from '@expo/vector-icons';
 import { StatusBar } from 'expo-status-bar';
 import { supabase } from '../../lib/supabase';
+import AIModal from '../components/AIModal';
 
 interface Task {
   id: string;
@@ -11,6 +14,63 @@ interface Task {
   category: string;
 }
 
+const TaskItem = ({ item, onToggle, onDelete }: { item: Task, onToggle: () => void, onDelete: () => void }) => {
+  const fadeAnim = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    Animated.timing(fadeAnim, {
+      toValue: 1,
+      duration: 800,
+      useNativeDriver: true,
+    }).start();
+  }, []);
+
+  return (
+    <Animated.View style={[
+      styles.card, 
+      item.status === 'DONE' && styles.cardDone,
+      { opacity: fadeAnim }
+    ]}>
+       <TouchableOpacity 
+         style={styles.cardContent} 
+         onPress={onToggle}
+         activeOpacity={0.7}
+       >
+         <View style={styles.cardHeader}>
+            <View style={[styles.priorityBadge, item.priority === 'HIGH' ? styles.priorityHigh : styles.priorityMed]}>
+               <Text style={styles.priorityText}>{item.priority}</Text>
+            </View>
+            <View style={[
+              styles.statusBadge, 
+              item.status === 'DONE' ? styles.statusDone : styles.statusTodo
+            ]}>
+              <Text style={[
+                styles.statusText, 
+                item.status === 'DONE' && styles.statusTextDone
+              ]}>
+                {item.status}
+              </Text>
+            </View>
+         </View>
+         <Text style={[
+           styles.taskTitle, 
+           item.status === 'DONE' && styles.taskTitleDone
+         ]}>
+           {item.status === 'DONE' ? '✓ ' : ''}{item.title}
+         </Text>
+         <Text style={styles.categoryText}>{item.category || 'General'}</Text>
+       </TouchableOpacity>
+       
+       <TouchableOpacity 
+         style={styles.inlineDelete} 
+         onPress={onDelete}
+       >
+         <Text style={styles.inlineDeleteText}>✕</Text>
+       </TouchableOpacity>
+    </Animated.View>
+  );
+};
+
 export default function TaskList() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [loading, setLoading] = useState(true);
@@ -18,6 +78,8 @@ export default function TaskList() {
   const [userEmail, setUserEmail] = useState<string | null>(null);
   const [newTaskTitle, setNewTaskTitle] = useState('');
   const [addingTask, setAddingTask] = useState(false);
+  const [isAIModalVisible, setIsAIModalVisible] = useState(false);
+  const navigation = useNavigation<any>();
   
   // 1. Persist the channel across re-renders
   const channelRef = useRef<any>(null);
@@ -141,44 +203,11 @@ export default function TaskList() {
   };
 
   const renderItem = ({ item }: { item: Task }) => (
-    <View style={[styles.card, item.status === 'DONE' && styles.cardDone]}>
-       <TouchableOpacity 
-         style={styles.cardContent} 
-         onPress={() => toggleTaskStatus(item.id, item.status)}
-         activeOpacity={0.7}
-       >
-         <View style={styles.cardHeader}>
-            <View style={[styles.priorityBadge, item.priority === 'HIGH' ? styles.priorityHigh : styles.priorityMed]}>
-               <Text style={styles.priorityText}>{item.priority}</Text>
-            </View>
-            <View style={[
-              styles.statusBadge, 
-              item.status === 'DONE' ? styles.statusDone : styles.statusTodo
-            ]}>
-              <Text style={[
-                styles.statusText, 
-                item.status === 'DONE' && styles.statusTextDone
-              ]}>
-                {item.status}
-              </Text>
-            </View>
-         </View>
-         <Text style={[
-           styles.taskTitle, 
-           item.status === 'DONE' && styles.taskTitleDone
-         ]}>
-           {item.status === 'DONE' ? '✓ ' : ''}{item.title}
-         </Text>
-         <Text style={styles.categoryText}>{item.category || 'General'}</Text>
-       </TouchableOpacity>
-       
-       <TouchableOpacity 
-         style={styles.inlineDelete} 
-         onPress={() => deleteTask(item.id)}
-       >
-         <Text style={styles.inlineDeleteText}>✕</Text>
-       </TouchableOpacity>
-    </View>
+    <TaskItem 
+      item={item} 
+      onToggle={() => toggleTaskStatus(item.id, item.status)}
+      onDelete={() => deleteTask(item.id)}
+    />
   );
 
   return (
@@ -233,8 +262,8 @@ export default function TaskList() {
           showsVerticalScrollIndicator={false}
           ListEmptyComponent={
             <View style={styles.emptyContainer}>
-               <Text style={styles.emptyText}>Your wedding plan is waitng for you.</Text>
-               <Text style={styles.emptySubText}>Add tasks above!</Text>
+               <Text style={styles.emptyText}>Waiting for your AI Wedding Plan...</Text>
+               <Text style={styles.emptySubText}>Check back soon or add tasks above!</Text>
             </View>
           }
           refreshControl={
@@ -246,6 +275,20 @@ export default function TaskList() {
           }
         />
       )}
+
+      {/* AI Assistant Modal */}
+      <AIModal 
+        isVisible={isAIModalVisible} 
+        onClose={() => setIsAIModalVisible(false)} 
+      />
+
+      {/* AI Assistant FAB */}
+      <TouchableOpacity 
+        style={styles.fab} 
+        onPress={() => setIsAIModalVisible(true)}
+      >
+        <Ionicons name="sparkles" size={30} color="#FFF" />
+      </TouchableOpacity>
     </View>
   );
 }
@@ -467,5 +510,21 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     textTransform: 'uppercase',
     letterSpacing: 1,
+  } as any,
+  fab: {
+    position: 'absolute',
+    right: 24,
+    bottom: 24,
+    width: 65,
+    height: 65,
+    borderRadius: 32.5,
+    backgroundColor: '#E11D48',
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#E11D48',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.3,
+    shadowRadius: 15,
+    elevation: 10,
   } as any
 });

@@ -6,6 +6,8 @@ import { supabase } from './lib/supabase';
 import AuthScreen from './src/screens/AuthScreen';
 import TaskList from './src/screens/TaskList';
 import CommunityLounge from './src/screens/CommunityLounge';
+import CalendarScreen from './src/screens/CalendarScreen';
+import ProfileScreen from './src/screens/ProfileScreen';
 import { Session } from '@supabase/supabase-js';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { NavigationContainer } from '@react-navigation/native';
@@ -63,6 +65,10 @@ export default function App() {
                     iconName = focused ? 'list' : 'list-outline';
                   } else if (route.name === 'Lounge') {
                     iconName = focused ? 'chatbubbles' : 'chatbubbles-outline';
+                  } else if (route.name === 'Calendar') {
+                    iconName = focused ? 'calendar' : 'calendar-outline';
+                  } else if (route.name === 'Profile') {
+                    iconName = focused ? 'person' : 'person-outline';
                   }
 
                   return <Ionicons name={iconName} size={size} color={color} />;
@@ -79,7 +85,9 @@ export default function App() {
               })}
             >
               <Tab.Screen name="Tasks" component={TaskList} />
+              <Tab.Screen name="Calendar" component={CalendarScreen} />
               <Tab.Screen name="Lounge" component={CommunityLounge} />
+              <Tab.Screen name="Profile" component={ProfileScreen} />
             </Tab.Navigator>
           </NavigationContainer>
         ) : (
