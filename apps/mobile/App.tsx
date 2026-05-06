@@ -22,24 +22,28 @@ export default function App() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Get initial session
     console.log("DEBUG: App Mounted, checking session...");
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      console.log("DEBUG: Session found:", !!session);
-      setSession(session);
-      setLoading(false);
-    });
 
-    // Listen for auth changes
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      console.log("DEBUG: Auth State Changed:", _event, !!session);
-      setSession(session);
-      setLoading(false);
-    });
+    if (supabase) {
+      // Add types to the destructured data
+      supabase.auth.getSession().then(({ data: { session } }: { data: { session: Session | null } }) => {
+        setSession(session);
+        setLoading(false);
+      }).catch((err: Error) => { // Added type 'Error'
+        console.error("DEBUG: Session fetch error:", err);
+        setLoading(false);
+      });
 
-    return () => {
-      subscription.unsubscribe();
-    };
+      // Add types to parameters
+      const { data: { subscription } } = supabase.auth.onAuthStateChange((_event: string, session: Session | null) => {
+        setSession(session);
+        setLoading(false);
+      });
+
+      return () => {
+        subscription.unsubscribe();
+      };
+    }
   }, []);
 
   if (loading) {
