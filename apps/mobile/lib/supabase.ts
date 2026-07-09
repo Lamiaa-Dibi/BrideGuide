@@ -28,11 +28,9 @@ const MultiPlatformStorageAdapter = {
     return Promise.resolve();
   },
 };
+const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL || Constants.expoConfig?.extra?.supabaseUrl || '';
+const supabaseAnonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY || Constants.expoConfig?.extra?.supabaseAnonKey || '';
 
-const supabaseUrl = Constants.expoConfig?.extra?.supabaseUrl || '';
-const supabaseAnonKey = Constants.expoConfig?.extra?.supabaseAnonKey || '';
-
-// Add the 'export' keyword here!
 export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   auth: {
     storage: MultiPlatformStorageAdapter as any,

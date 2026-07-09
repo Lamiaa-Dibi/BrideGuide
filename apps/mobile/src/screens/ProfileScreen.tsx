@@ -1,19 +1,35 @@
 import React, { useState, useEffect } from 'react';
-import { StyleSheet, Text, View, TextInput, TouchableOpacity, ActivityIndicator, Alert, SafeAreaView, Platform, KeyboardAvoidingView, ScrollView } from 'react-native';
+import {
+  StyleSheet,
+  Text,
+  View,
+  TextInput,
+  TouchableOpacity,
+  ActivityIndicator,
+  Alert,
+  SafeAreaView,
+  Platform,
+  KeyboardAvoidingView,
+  ScrollView,
+  Modal,
+} from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
+import { Calendar } from 'react-native-calendars';
 import { supabase } from '../../lib/supabase';
 import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
+import { useNavigation } from '@react-navigation/native';
 
 export default function ProfileScreen() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  // Internal storage is always YYYY-MM-DD (or empty string)
   const [weddingDate, setWeddingDate] = useState('');
-  const [weddingTheme, setWeddingTheme] = useState('');
-  const [guestCount, setGuestCount] = useState('');
   const [email, setEmail] = useState('');
+  const [calendarVisible, setCalendarVisible] = useState(false);
+  const navigation = useNavigation<any>();
 
-  // 1. Force refresh when screen comes into focus
+  // Force refresh when screen comes into focus
   useFocusEffect(
     React.useCallback(() => {
       fetchProfile();
@@ -24,11 +40,15 @@ export default function ProfileScreen() {
     fetchProfile();
   }, []);
 
+  // Pretty-print YYYY-MM-DD → "15 / 10 / 2026"
   const formatDateForUI = (dateStr: string) => {
-    if (!dateStr || dateStr.length < 10) return dateStr;
+    if (!dateStr || dateStr.length < 10) return '';
     const [y, m, d] = dateStr.split('-');
-    return `${d} / ${m} / ${y}`; // Pretty format for the bride
+    return `${d} / ${m} / ${y}`;
   };
+
+  // Determine the month the calendar should open on
+  const calendarInitialDate = weddingDate || new Date().toISOString().split('T')[0];
 
   const fetchProfile = async () => {
     try {
@@ -46,10 +66,8 @@ export default function ProfileScreen() {
       if (error && error.code !== 'PGRST116') throw error;
 
       if (data) {
-        // Populate the form with the "Pretty" version
-        setWeddingDate(formatDateForUI(data.wedding_date) || '');
-        setWeddingTheme(data.wedding_theme || '');
-        setGuestCount(data.guest_count?.toString() || '');
+        // Store in canonical YYYY-MM-DD form
+        setWeddingDate(data.wedding_date ? data.wedding_date.split('T')[0] : '');
       }
     } catch (err: any) {
       console.error('Fetch Profile Error:', err.message);
@@ -58,25 +76,9 @@ export default function ProfileScreen() {
     }
   };
 
-  const normalizeDate = (input: string) => {
-    if (!input) return null;
-    
-    const parts = input.match(/(\d+)/g);
-    if (!parts || parts.length < 3) return input;
-
-    let year, month, day;
-    
-    if (parts[0].length === 4) { // YYYY-MM-DD
-      year = parts[0];
-      month = parts[1].padStart(2, '0');
-      day = parts[2].padStart(2, '0');
-    } else { 
-      day = parts[0].padStart(2, '0');
-      month = parts[1].padStart(2, '0');
-      year = parts[2].length === 2 ? `20${parts[2]}` : parts[2];
-    }
-
-    return `${year}-${month}-${day}`;
+  const handleDayPress = (day: { dateString: string }) => {
+    setWeddingDate(day.dateString); // already YYYY-MM-DD
+    setCalendarVisible(false);
   };
 
   const handleSave = async () => {
@@ -85,33 +87,37 @@ export default function ProfileScreen() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
 
-      const formattedDate = normalizeDate(weddingDate);
+      // Convert user's input date from DD/MM/YYYY to YYYY-MM-DD if needed
+      let dbDate = weddingDate || null;
+      if (dbDate && dbDate.includes('/')) {
+        const parts = dbDate.split('/').map(p => p.trim());
+        if (parts.length === 3) {
+          const [d, m, y] = parts;
+          dbDate = `${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`;
+        }
+      }
 
       const updates = {
-        id: user.id,
-        email: user.email,
-        wedding_date: formattedDate,
-        wedding_theme: weddingTheme,
-        guest_count: guestCount ? parseInt(guestCount) : null,
-        updated_at: new Date().toISOString(),
+        wedding_date: dbDate,
       };
 
-      console.log("Supabase Payload:", updates);
+      console.log('Supabase Payload:', updates);
 
-      const { error } = await supabase.from('profiles').upsert(updates);
+      const { error } = await supabase
+        .from('profiles')
+        .update(updates)
+        .eq('id', user.id);
 
       if (error) {
-        console.error("Supabase Error Details:", error);
+        console.error('Supabase Error Details:', error);
         throw error;
       }
-      
-      // PERSISTENCE LOCK: Update local UI state immediately to prevent resetting
-      if (formattedDate) {
-        setWeddingDate(formatDateForUI(formattedDate));
-      }
-      
-      Alert.alert('Success', 'Your profile has been updated!');
+
+      // Navigate straight to Calendar before the Alert is triggered (to avoid UI locking)
+      navigation.navigate('Calendar');
+      Alert.alert('Success! 💕', 'Your wedding date has been saved!');
     } catch (err: any) {
+      console.log("CRITICAL SAVE ERROR:", err);
       Alert.alert('Error', err.message);
     } finally {
       setSaving(false);
@@ -129,14 +135,15 @@ export default function ProfileScreen() {
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar style="dark" />
-      <KeyboardAvoidingView 
+      <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         style={{ flex: 1 }}
       >
         <ScrollView contentContainerStyle={styles.scrollContent}>
+          {/* ── Header ── */}
           <View style={styles.header}>
             <View style={styles.avatar}>
-               <Text style={styles.avatarText}>{email[0]?.toUpperCase()}</Text>
+              <Text style={styles.avatarText}>{email[0]?.toUpperCase()}</Text>
             </View>
             <Text style={styles.emailText}>{email}</Text>
             <View style={styles.badge}>
@@ -144,46 +151,33 @@ export default function ProfileScreen() {
             </View>
           </View>
 
+          {/* ── Form ── */}
           <View style={styles.form}>
-            <Text style={styles.label}>Wedding Date (DD / MM / YYYY)</Text>
-            <View style={styles.inputWrapper}>
+
+            {/* Wedding Date — calendar picker */}
+            <Text style={styles.label}>Wedding Date</Text>
+            <TouchableOpacity
+              style={styles.inputWrapper}
+              onPress={() => setCalendarVisible(true)}
+              activeOpacity={0.7}
+            >
               <Ionicons name="calendar-outline" size={20} color="#FDA4AF" />
-              <TextInput
-                style={styles.input}
-                placeholder="15 / 10 / 2026"
-                placeholderTextColor="#FDA4AF"
-                value={weddingDate}
-                onChangeText={setWeddingDate}
-              />
-            </View>
+              <Text
+                style={[
+                  styles.dateText,
+                  !weddingDate && styles.datePlaceholder,
+                ]}
+              >
+                {weddingDate ? formatDateForUI(weddingDate) : 'Tap to pick a date'}
+              </Text>
+              <Ionicons name="chevron-down" size={16} color="#FDA4AF" />
+            </TouchableOpacity>
 
-            <Text style={styles.label}>Wedding Theme</Text>
-            <View style={styles.inputWrapper}>
-              <Ionicons name="color-palette-outline" size={20} color="#FDA4AF" />
-              <TextInput
-                style={styles.input}
-                placeholder="e.g. Modern Rose"
-                placeholderTextColor="#FDA4AF"
-                value={weddingTheme}
-                onChangeText={setWeddingTheme}
-              />
-            </View>
 
-            <Text style={styles.label}>Guest Count</Text>
-            <View style={styles.inputWrapper}>
-              <Ionicons name="people-outline" size={20} color="#FDA4AF" />
-              <TextInput
-                style={styles.input}
-                placeholder="Number of guests"
-                placeholderTextColor="#FDA4AF"
-                value={guestCount}
-                onChangeText={setGuestCount}
-                keyboardType="numeric"
-              />
-            </View>
 
-            <TouchableOpacity 
-              style={[styles.saveBtn, saving && { opacity: 0.7 }]} 
+            {/* Save Button */}
+            <TouchableOpacity
+              style={[styles.saveBtn, saving && { opacity: 0.7 }]}
               onPress={handleSave}
               disabled={saving}
             >
@@ -199,6 +193,57 @@ export default function ProfileScreen() {
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
+
+      {/* ── Calendar Picker Modal ── */}
+      <Modal
+        visible={calendarVisible}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setCalendarVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalCard}>
+            {/* Header bar */}
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Pick Your Wedding Date 💕</Text>
+              <TouchableOpacity onPress={() => setCalendarVisible(false)}>
+                <Ionicons name="close-circle" size={28} color="#E11D48" />
+              </TouchableOpacity>
+            </View>
+
+            <Calendar
+              current={calendarInitialDate}
+              minDate={new Date().toISOString().split('T')[0]}
+              onDayPress={handleDayPress}
+              markedDates={
+                weddingDate
+                  ? {
+                      [weddingDate]: {
+                        selected: true,
+                        selectedColor: '#E11D48',
+                      },
+                    }
+                  : {}
+              }
+              theme={{
+                backgroundColor: '#ffffff',
+                calendarBackground: '#ffffff',
+                textSectionTitleColor: '#FDA4AF',
+                selectedDayBackgroundColor: '#E11D48',
+                selectedDayTextColor: '#ffffff',
+                todayTextColor: '#E11D48',
+                dayTextColor: '#1E293B',
+                textDisabledColor: '#E2E8F0',
+                arrowColor: '#E11D48',
+                monthTextColor: '#E11D48',
+                textMonthFontWeight: 'bold',
+                textDayFontSize: 16,
+                textMonthFontSize: 18,
+              }}
+            />
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -207,6 +252,8 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#FDF2F2' },
   loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   scrollContent: { padding: 24 },
+
+  // Header
   header: { alignItems: 'center', marginTop: 20, marginBottom: 40 },
   avatar: {
     width: 100,
@@ -222,12 +269,88 @@ const styles = StyleSheet.create({
   },
   avatarText: { fontSize: 40, color: '#E11D48', fontWeight: 'bold' },
   emailText: { marginTop: 16, fontSize: 18, color: '#1E293B', fontWeight: '600' },
-  badge: { marginTop: 8, backgroundColor: '#FFE4E6', paddingHorizontal: 12, paddingVertical: 4, borderRadius: 20 },
+  badge: {
+    marginTop: 8,
+    backgroundColor: '#FFE4E6',
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+    borderRadius: 20,
+  },
   badgeText: { fontSize: 10, fontWeight: '900', color: '#E11D48', textTransform: 'uppercase' },
-  form: { backgroundColor: '#FFF', padding: 24, borderRadius: 32, borderWidth: 1, borderColor: '#FFE4E6' },
-  label: { fontSize: 12, fontWeight: 'bold', color: '#334155', marginBottom: 8, textTransform: 'uppercase' },
-  inputWrapper: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#FDF2F2', borderRadius: 16, paddingHorizontal: 16, marginBottom: 20, borderWidth: 1, borderColor: '#FFE4E6' },
+
+  // Form
+  form: {
+    backgroundColor: '#FFF',
+    padding: 24,
+    borderRadius: 32,
+    borderWidth: 1,
+    borderColor: '#FFE4E6',
+  },
+  label: {
+    fontSize: 12,
+    fontWeight: 'bold',
+    color: '#334155',
+    marginBottom: 8,
+    textTransform: 'uppercase',
+  },
+  inputWrapper: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FDF2F2',
+    borderRadius: 16,
+    paddingHorizontal: 16,
+    marginBottom: 20,
+    borderWidth: 1,
+    borderColor: '#FFE4E6',
+    minHeight: 55,
+  },
   input: { flex: 1, height: 55, marginLeft: 12, fontSize: 14, color: '#1E293B' },
-  saveBtn: { backgroundColor: '#E11D48', height: 60, borderRadius: 20, justifyContent: 'center', alignItems: 'center', flexDirection: 'row', gap: 12, marginTop: 10 },
-  saveBtnText: { color: '#FFF', fontSize: 16, fontWeight: 'bold' }
+  dateText: { flex: 1, marginLeft: 12, fontSize: 14, color: '#1E293B' },
+  datePlaceholder: { color: '#FDA4AF' },
+
+  // Save button
+  saveBtn: {
+    backgroundColor: '#E11D48',
+    height: 60,
+    borderRadius: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 12,
+    marginTop: 10,
+  },
+  saveBtnText: { color: '#FFF', fontSize: 16, fontWeight: 'bold' },
+
+  // Modal
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.45)',
+    justifyContent: 'flex-end',
+  },
+  modalCard: {
+    backgroundColor: '#FFF',
+    borderTopLeftRadius: 32,
+    borderTopRightRadius: 32,
+    paddingBottom: 40,
+    paddingHorizontal: 4,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 20,
+    elevation: 20,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    paddingVertical: 20,
+    borderBottomWidth: 1,
+    borderBottomColor: '#FFE4E6',
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#E11D48',
+  },
 });

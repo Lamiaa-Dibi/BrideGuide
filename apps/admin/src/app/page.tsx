@@ -22,6 +22,7 @@ interface Task {
 }
 
 export default function PremiumDashboard() {
+  const [mounted, setMounted] = useState(false);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [profiles, setProfiles] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -43,6 +44,7 @@ export default function PremiumDashboard() {
   const [isGenerating, setIsGenerating] = useState<boolean>(false);
 
   useEffect(() => {
+    setMounted(true);
     checkAuth();
     fetchTasks();
     fetchProfiles();
@@ -225,7 +227,7 @@ export default function PremiumDashboard() {
     if (!newTaskTitle || !selectedBrideId) return;
 
     try {
-      console.log('DEBUG: Attempting to assign task...', {
+      console.log('DEBUG: Attempting to assign task via API...', {
         title: newTaskTitle,
         user_id: selectedBrideId,
         status: 'TODO',
@@ -233,26 +235,27 @@ export default function PremiumDashboard() {
         category: 'General'
       });
 
-      const { data, error } = await supabase.from('tasks').insert([{
-        title: newTaskTitle,
-        user_id: selectedBrideId,
-        status: 'TODO',
-        priority: 'MEDIUM',
-        category: 'General'
-      }]).select();
+      const response = await fetch('/api/tasks', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: newTaskTitle,
+          user_id: selectedBrideId,
+          status: 'TODO',
+          priority: 'MEDIUM',
+          category: 'General'
+        })
+      });
 
-      if (error) {
-        console.error('SUPABASE ERROR (Assign Task):', {
-          message: error.message,
-          code: error.code,
-          details: error.details,
-          hint: error.hint
-        });
-        alert(`Assignment failed: ${error.message} (Check Console for details)`);
+      const data = await response.json();
+
+      if (data.error) {
+        console.error('API ERROR (Assign Task):', data.error);
+        alert(`Assignment failed: ${data.error}`);
         return;
       }
 
-      console.log('DEBUG: Task assigned successfully:', data);
+      console.log('DEBUG: Task assigned successfully:', data.data);
       setNewTaskTitle('');
       setSelectedBrideId('');
       fetchTasks();
@@ -342,6 +345,14 @@ export default function PremiumDashboard() {
   };
 
   const stats = getStats();
+
+  if (!mounted) {
+    return (
+      <div className="flex h-screen bg-[#FDF2F2] items-center justify-center font-sans">
+        <div className="text-[#E11D48] font-serif text-2xl animate-pulse">Loading dashboard...</div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex h-screen bg-[#FDF2F2] overflow-hidden selection:bg-rose-200 font-sans">

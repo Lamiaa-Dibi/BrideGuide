@@ -1,10 +1,51 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 
-const supabaseAdmin = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
+// Lazy initializer for the Admin Client to avoid build-time errors
+let supabaseAdmin: any = null;
+
+function getSupabaseAdmin() {
+  if (!supabaseAdmin) {
+    const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    if (!url || !key) {
+      throw new Error('Supabase URL and Service Role Key are required.');
+    }
+    supabaseAdmin = createClient(url, key);
+  }
+  return supabaseAdmin;
+}
+
+export async function POST(req: Request) {
+  try {
+    const { title, user_id, status, priority, category } = await req.json();
+
+    if (!title || !user_id) {
+      return NextResponse.json({ error: 'Missing title or user_id' }, { status: 400 });
+    }
+
+    console.log('DEBUG: Master Bypass Insert for Task:', { title, user_id });
+
+    const adminClient = getSupabaseAdmin();
+    const { data, error } = await adminClient
+      .from('tasks')
+      .insert([{ 
+        title, 
+        user_id, 
+        status: status || 'TODO', 
+        priority: priority || 'MEDIUM', 
+        category: category || 'General' 
+      }])
+      .select();
+
+    if (error) throw error;
+
+    return NextResponse.json({ success: true, data });
+  } catch (error: any) {
+    console.error('SERVER-SIDE INSERT ERROR:', error.message);
+    return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+}
 
 export async function PATCH(req: Request) {
   try {
@@ -16,7 +57,8 @@ export async function PATCH(req: Request) {
 
     console.log('DEBUG: Master Bypass Update for Task:', id, updates);
 
-    const { data, error } = await supabaseAdmin
+    const adminClient = getSupabaseAdmin();
+    const { data, error } = await adminClient
       .from('tasks')
       .update(updates)
       .eq('id', id)
@@ -41,7 +83,8 @@ export async function DELETE(req: Request) {
 
     console.log('DEBUG: Master Bypass Delete for Task:', id);
 
-    const { error } = await supabaseAdmin
+    const adminClient = getSupabaseAdmin();
+    const { error } = await adminClient
       .from('tasks')
       .delete()
       .eq('id', id);
