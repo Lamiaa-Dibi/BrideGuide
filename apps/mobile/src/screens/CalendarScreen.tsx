@@ -16,8 +16,10 @@ import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
 
 // ─── Countdown helper (timezone-safe) ─────────────────────────────────────────
-function calcCountdown(dateStr: string): number {
+function calcCountdown(dateStr: string): number | null {
+  if (!dateStr || typeof dateStr !== 'string' || !dateStr.includes('-')) return null;
   const [y, m, d] = dateStr.split('-').map(Number);
+  if (isNaN(y) || isNaN(m) || isNaN(d)) return null;
   const now = new Date();
   const todayUTC = Date.UTC(now.getFullYear(), now.getMonth(), now.getDate());
   const weddingUTC = Date.UTC(y, m - 1, d);
@@ -79,19 +81,29 @@ export default function CalendarScreen() {
     setGuestCount(profile.guest_count ?? null);
 
     // Jump calendar to the wedding month when data arrives
-    setCurrentMonth(rawDate);
+    if (rawDate) setCurrentMonth(rawDate);
   };
 
-  // Wrap the fetch logic inside a useCallback hook tracking user.id
+  // Wrap the fetch logic inside a useCallback hook tracking user
   const fetchWeddingData = React.useCallback(async () => {
-    if (!user) return;
     setLoading(true);
     try {
+      let activeUser = user;
+      if (!activeUser) {
+        const { data: { user: authUser } } = await supabase.auth.getUser();
+        if (authUser) {
+          activeUser = authUser;
+          setUser(authUser);
+        }
+      }
+
+      if (!activeUser) return;
+
       // ── Fetch profile (date + guest count) ──
       const { data: profile } = await supabase
         .from('profiles')
         .select('wedding_date, guest_count')
-        .eq('id', user.id)
+        .eq('id', activeUser.id)
         .single();
 
       applyProfile(profile);
@@ -107,10 +119,12 @@ export default function CalendarScreen() {
         if (t.due_date) marks[t.due_date.split('T')[0]] = true;
       });
       setTaskMarks(marks);
+    } catch (err) {
+      console.error('Error fetching calendar data:', err);
     } finally {
       setLoading(false);
     }
-  }, [user?.id]);
+  }, [user]);
 
   // Force refresh when the tab comes into focus (e.g. after saving Profile)
   useFocusEffect(
