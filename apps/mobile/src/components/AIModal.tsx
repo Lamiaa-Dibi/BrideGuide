@@ -8,6 +8,11 @@ interface AIModalProps {
   onClose: () => void;
 }
 
+function isGenericAddRequest(userMsg: string) {
+  const clean = userMsg.trim().toLowerCase();
+  return /^(add a task|add task|create task|create a task|add a task for me|add task for me|create task for me|add a new task|new task|put a task|add something)$/i.test(clean);
+}
+
 function extractTaskDetails(userMsg: string) {
   let taskTitle = userMsg
     .replace(/^(please|can you|could you|i want to|i need to)\s+/i, '')
@@ -18,18 +23,8 @@ function extractTaskDetails(userMsg: string) {
   // Remove trailing generic suffixes like "for me"
   taskTitle = taskTitle.replace(/\s+for me$/i, '').trim();
 
-  // Default tasks list if user's query is generic or empty
-  const defaultTasks = [
-    { title: 'Book Wedding Venue', category: 'Venue' },
-    { title: 'Schedule Bridal Dress Fitting', category: 'Attire' },
-    { title: 'Hire Wedding Photographer', category: 'Photo' },
-    { title: 'Finalize Catering Menu & Tasting', category: 'Food' },
-    { title: 'Send Wedding Invitations', category: 'Planning' },
-  ];
-
-  if (!taskTitle || taskTitle.length < 3 || /^(for me|task|a task|something|item|checklist)$/i.test(taskTitle)) {
-    const randomPick = defaultTasks[Math.floor(Math.random() * defaultTasks.length)];
-    return randomPick;
+  if (!taskTitle || taskTitle.length < 2) {
+    taskTitle = userMsg.trim();
   }
 
   // Capitalize first letter
@@ -50,6 +45,7 @@ function extractTaskDetails(userMsg: string) {
 export default function AIModal({ isVisible, onClose }: AIModalProps) {
   const [query, setQuery] = useState('');
   const [loading, setLoading] = useState(false);
+  const [isAwaitingTaskTitle, setIsAwaitingTaskTitle] = useState(false);
   const [messages, setMessages] = useState<{ role: 'user' | 'ai', text: string }[]>([
     { role: 'ai', text: 'Hello! I am your AI Wedding Assistant. How can I help you with your tasks today?' }
   ]);
@@ -60,61 +56,61 @@ export default function AIModal({ isVisible, onClose }: AIModalProps) {
     const userMsg = query.trim();
     setMessages(prev => [...prev, { role: 'user', text: userMsg }]);
     setQuery('');
+
+    // Check if the user is making a generic request like "add a task" without title
+    if (isGenericAddRequest(userMsg) && !isAwaitingTaskTitle) {
+      setIsAwaitingTaskTitle(true);
+      setMessages(prev => [...prev, {
+        role: 'ai',
+        text: 'Sure! What task would you like to add to your checklist? 💕'
+      }]);
+      return;
+    }
+
     setLoading(true);
 
     try {
       const { data: { user } } = await supabase.auth.getUser();
-      let successReply = '';
 
-      // Try hitting the backend /api/chat route
-      try {
-        const response = await fetch('http://localhost:3000/api/chat', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            message: userMsg,
-            user_id: user?.id
-          }),
-        });
+      let titleToAdd = '';
+      let categoryToAdd = 'General';
 
-        if (response.ok) {
-          const data = await response.json();
-          if (data?.reply) {
-            successReply = data.reply;
-          }
-        }
-      } catch (fetchErr) {
-        console.log('Backend chat API unreachable, executing client-side Supabase insert:', fetchErr);
-      }
-
-      if (successReply) {
-        setMessages(prev => [...prev, { role: 'ai', text: successReply }]);
+      if (isAwaitingTaskTitle) {
+        // User is answering "What task would you like to add?"
+        setIsAwaitingTaskTitle(false);
+        const parsed = extractTaskDetails(userMsg);
+        titleToAdd = userMsg.length > 2 ? userMsg.charAt(0).toUpperCase() + userMsg.slice(1) : parsed.title;
+        categoryToAdd = parsed.category;
       } else {
-        // Fallback: Perform client-side insert directly into Supabase so task is GUARANTEED to be added!
-        const { title, category } = extractTaskDetails(userMsg);
-
-        if (user?.id) {
-          const { error } = await supabase.from('tasks').insert([{
-            title,
-            category,
-            priority: 'MEDIUM',
-            status: 'TODO',
-            user_id: user.id
-          }]);
-          if (error) console.error('Client Task Insert Error:', error);
-        }
-
-        setMessages(prev => [...prev, { 
-          role: 'ai', 
-          text: `I've added "${title}" to your wedding checklist! 💕` 
-        }]);
+        const parsed = extractTaskDetails(userMsg);
+        titleToAdd = parsed.title;
+        categoryToAdd = parsed.category;
       }
+
+      // Perform database insertion immediately
+      if (user?.id) {
+        const { error } = await supabase.from('tasks').insert([{
+          title: titleToAdd,
+          category: categoryToAdd,
+          priority: 'MEDIUM',
+          status: 'TODO',
+          user_id: user.id
+        }]);
+
+        if (error) console.error('Supabase Task Insert Error:', error);
+      }
+
+      setMessages(prev => [...prev, {
+        role: 'ai',
+        text: `I've added "${titleToAdd}" to your wedding checklist! 💕`
+      }]);
+
     } catch (err: any) {
       console.error('AI Chat Error:', err);
-      const { title } = extractTaskDetails(userMsg);
-      setMessages(prev => [...prev, { 
-        role: 'ai', 
-        text: `I've added "${title}" to your wedding checklist! 💕` 
+      const parsed = extractTaskDetails(userMsg);
+      setMessages(prev => [...prev, {
+        role: 'ai',
+        text: `I've added "${parsed.title}" to your wedding checklist! 💕`
       }]);
     } finally {
       setLoading(false);
