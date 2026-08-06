@@ -19,6 +19,7 @@ import { supabase } from '../../lib/supabase';
 import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
+import { scheduleWeddingReminders } from '../utils/notifications';
 
 export default function ProfileScreen() {
   const [loading, setLoading] = useState(true);
@@ -88,29 +89,43 @@ export default function ProfileScreen() {
       if (!user) return;
 
       // Convert user's input date from DD/MM/YYYY to YYYY-MM-DD if needed
-      let dbDate = weddingDate || null;
-      if (dbDate && dbDate.includes('/')) {
-        const parts = dbDate.split('/').map(p => p.trim());
+      let formattedDateForDB = weddingDate || null;
+      if (formattedDateForDB && formattedDateForDB.includes('/')) {
+        const parts = formattedDateForDB.split('/').map(p => p.trim());
         if (parts.length === 3) {
           const [d, m, y] = parts;
-          dbDate = `${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`;
+          formattedDateForDB = `${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`;
         }
       }
 
       const updates = {
-        wedding_date: dbDate,
+        wedding_date: formattedDateForDB,
       };
 
       console.log('Supabase Payload:', updates);
 
-      const { error } = await supabase
+      const { data, error } = await supabase
         .from('profiles')
         .update(updates)
-        .eq('id', user.id);
+        .eq('id', user.id)
+        .select();
+
+      console.log("Supabase Update Response:", data);
+      if (error) console.error("Supabase Update Error details:", error);
 
       if (error) {
-        console.error('Supabase Error Details:', error);
         throw error;
+      }
+
+      // Schedule local wedding notification reminders safely
+      if (formattedDateForDB) {
+        try {
+          console.log("Attempting to schedule reminders for:", formattedDateForDB);
+          await scheduleWeddingReminders(formattedDateForDB);
+          console.log("Reminders scheduled successfully!");
+        } catch (notifError) {
+          console.error("Notifications failed safely, continuing flow:", notifError);
+        }
       }
 
       // Navigate straight to Calendar before the Alert is triggered (to avoid UI locking)

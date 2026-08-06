@@ -54,7 +54,7 @@ export default function CalendarScreen() {
         'postgres_changes',
         { event: 'UPDATE', schema: 'public', table: 'profiles', filter: `id=eq.${user.id}` },
         (payload) => {
-          if (payload.new?.wedding_date) applyProfile(payload.new);
+          applyProfile(payload.new);
         }
       )
       .subscribe();
@@ -64,8 +64,12 @@ export default function CalendarScreen() {
   }, [user?.id]);
 
   const applyProfile = (profile: any) => {
-    // Strict null guard: only update calendar state if wedding_date is not null/undefined
+    // Strict null guard: safety check to prevent crashes on null/undefined profile or wedding_date, and clear stale state
     if (!profile || profile.wedding_date === null || profile.wedding_date === undefined) {
+      setWeddingDate(null);
+      weddingDateRef.current = null;
+      setCountdown(null);
+      setGuestCount(null);
       return;
     }
     const rawDate = profile.wedding_date.split('T')[0];
