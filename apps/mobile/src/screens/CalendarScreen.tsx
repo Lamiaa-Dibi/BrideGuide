@@ -15,6 +15,8 @@ import { supabase } from '../../lib/supabase';
 import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
 
+import { useProfile } from '../context/ProfileContext';
+
 // ─── Countdown helper (timezone-safe) ─────────────────────────────────────────
 function calcCountdown(dateStr: string): number | null {
   if (!dateStr || typeof dateStr !== 'string' || !dateStr.includes('-')) return null;
@@ -29,16 +31,35 @@ function calcCountdown(dateStr: string): number | null {
 // ─── Main Screen ──────────────────────────────────────────────────────────────
 export default function CalendarScreen() {
   const navigation = useNavigation<any>();
+  const { weddingDate: globalWeddingDate, guestCount: globalGuestCount, loading: profileLoading } = useProfile();
+
   const [loading, setLoading] = useState(true);
-  const [weddingDate, setWeddingDate] = useState<string | null>(null);
-  const [guestCount, setGuestCount] = useState<number | null>(null);
-  const [countdown, setCountdown] = useState<number | null>(null);
+  const [weddingDate, setWeddingDate] = useState<string | null>(globalWeddingDate);
+  const [guestCount, setGuestCount] = useState<number | null>(globalGuestCount);
+  const [countdown, setCountdown] = useState<number | null>(globalWeddingDate ? calcCountdown(globalWeddingDate) : null);
   const [taskMarks, setTaskMarks] = useState<Record<string, boolean>>({});
-  const [currentMonth, setCurrentMonth] = useState<string>('');
+  const [currentMonth, setCurrentMonth] = useState<string>(globalWeddingDate || '');
   const [user, setUser] = useState<any>(null);
 
   // Keep a ref so the dayComponent closure always sees the latest weddingDate
-  const weddingDateRef = useRef<string | null>(null);
+  const weddingDateRef = useRef<string | null>(globalWeddingDate);
+
+  // Sync state with global context on mount and context updates
+  useEffect(() => {
+    if (globalWeddingDate) {
+      setWeddingDate(globalWeddingDate);
+      weddingDateRef.current = globalWeddingDate;
+      setCountdown(calcCountdown(globalWeddingDate));
+      if (!currentMonth) setCurrentMonth(globalWeddingDate);
+    } else {
+      setWeddingDate(null);
+      weddingDateRef.current = null;
+      setCountdown(null);
+    }
+    if (globalGuestCount !== undefined) {
+      setGuestCount(globalGuestCount);
+    }
+  }, [globalWeddingDate, globalGuestCount]);
 
   // Fetch logged in user on mount
   useEffect(() => {
@@ -46,24 +67,6 @@ export default function CalendarScreen() {
       if (user) setUser(user);
     });
   }, []);
-
-  // Real-time subscription: immediately react when profile is updated
-  useEffect(() => {
-    if (!user) return;
-    const profileChannel = supabase
-      .channel('profile-calendar')
-      .on(
-        'postgres_changes',
-        { event: 'UPDATE', schema: 'public', table: 'profiles', filter: `id=eq.${user.id}` },
-        (payload) => {
-          applyProfile(payload.new);
-        }
-      )
-      .subscribe();
-    return () => {
-      supabase.removeChannel(profileChannel);
-    };
-  }, [user?.id]);
 
   const applyProfile = (profile: any) => {
     // Strict null guard: safety check to prevent crashes on null/undefined profile or wedding_date, and clear stale state
@@ -98,15 +101,6 @@ export default function CalendarScreen() {
       }
 
       if (!activeUser) return;
-
-      // ── Fetch profile (date + guest count) ──
-      const { data: profile } = await supabase
-        .from('profiles')
-        .select('wedding_date, guest_count')
-        .eq('id', activeUser.id)
-        .single();
-
-      applyProfile(profile);
 
       // ── Fetch tasks for dot markers ──
       const { data: tasks } = await supabase

@@ -21,7 +21,10 @@ import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import { scheduleWeddingReminders } from '../utils/notifications';
 
+import { useProfile } from '../context/ProfileContext';
+
 export default function ProfileScreen() {
+  const { weddingDate: globalWeddingDate, updateWeddingDate, loading: profileLoading } = useProfile();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   // Internal storage is always YYYY-MM-DD (or empty string)
@@ -30,12 +33,11 @@ export default function ProfileScreen() {
   const [calendarVisible, setCalendarVisible] = useState(false);
   const navigation = useNavigation<any>();
 
-  // Force refresh when screen comes into focus
-  useFocusEffect(
-    React.useCallback(() => {
-      fetchProfile();
-    }, [])
-  );
+  useEffect(() => {
+    if (globalWeddingDate !== undefined) {
+      setWeddingDate(globalWeddingDate || '');
+    }
+  }, [globalWeddingDate]);
 
   useEffect(() => {
     fetchProfile();
@@ -54,21 +56,8 @@ export default function ProfileScreen() {
   const fetchProfile = async () => {
     try {
       const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
-
-      setEmail(user.email || '');
-
-      const { data, error } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('id', user.id)
-        .single();
-
-      if (error && error.code !== 'PGRST116') throw error;
-
-      if (data) {
-        // Store in canonical YYYY-MM-DD form
-        setWeddingDate(data.wedding_date ? data.wedding_date.split('T')[0] : '');
+      if (user) {
+        setEmail(user.email || '');
       }
     } catch (err: any) {
       console.error('Fetch Profile Error:', err.message);
@@ -85,9 +74,6 @@ export default function ProfileScreen() {
   const handleSave = async () => {
     setSaving(true);
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
-
       // Convert user's input date from DD/MM/YYYY to YYYY-MM-DD if needed
       let formattedDateForDB = weddingDate || null;
       if (formattedDateForDB && formattedDateForDB.includes('/')) {
@@ -98,24 +84,8 @@ export default function ProfileScreen() {
         }
       }
 
-      const updates = {
-        wedding_date: formattedDateForDB,
-      };
-
-      console.log('Supabase Payload:', updates);
-
-      const { data, error } = await supabase
-        .from('profiles')
-        .update(updates)
-        .eq('id', user.id)
-        .select();
-
-      console.log("Supabase Update Response:", data);
-      if (error) console.error("Supabase Update Error details:", error);
-
-      if (error) {
-        throw error;
-      }
+      // Persist to Supabase profiles table & update global context immediately
+      await updateWeddingDate(formattedDateForDB);
 
       // Schedule local wedding notification reminders safely
       if (formattedDateForDB) {
@@ -133,7 +103,7 @@ export default function ProfileScreen() {
       Alert.alert('Success! 💕', 'Your wedding date has been saved!');
     } catch (err: any) {
       console.log("CRITICAL SAVE ERROR:", err);
-      Alert.alert('Error', err.message);
+      Alert.alert('Error', err.message || 'Failed to save date');
     } finally {
       setSaving(false);
     }

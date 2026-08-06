@@ -15,6 +15,8 @@ import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
+import { ProfileProvider } from './src/context/ProfileContext';
+
 const Tab = createBottomTabNavigator();
 
 export default function App() {
@@ -56,10 +58,11 @@ export default function App() {
 
   return (
     <SafeAreaProvider>
-      <GestureHandlerRootView style={{ flex: 1 }}>
-        <StatusBar style="dark" />
-        {session ? (
-          <NavigationContainer>
+      <ProfileProvider>
+        <GestureHandlerRootView style={{ flex: 1 }}>
+          <StatusBar style="dark" />
+          {session ? (
+            <NavigationContainer>
             <Tab.Navigator
               screenOptions={({ route }) => ({
                 tabBarIcon: ({ focused, color, size }) => {
@@ -99,7 +102,8 @@ export default function App() {
             <AuthScreen />
           </View>
         )}
-      </GestureHandlerRootView>
+        </GestureHandlerRootView>
+      </ProfileProvider>
     </SafeAreaProvider>
   );
 }
